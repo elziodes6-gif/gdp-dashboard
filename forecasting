@@ -1,1 +1,387 @@
+import streamlit as st
+import pandas as pd
+import io
+import math
+import plotly.graph_objects as go
+from datetime import datetime
 
+# --- PENGATURAN HALAMAN & STATE ---
+st.set_page_config(page_title="Sistem Peramalan Profesional", layout="wide", initial_sidebar_state="expanded")
+
+if 'halaman' not in st.session_state:
+    st.session_state['halaman'] = 0
+
+if 'riwayat_forecasting' not in st.session_state:
+    st.session_state['riwayat_forecasting'] = []
+
+def lanjut_halaman():
+    if st.session_state['halaman'] < 2:
+        st.session_state['halaman'] += 1
+
+def kembali_halaman():
+    if st.session_state['halaman'] > 0:
+        st.session_state['halaman'] -= 1
+
+# --- KUSTOMISASI CSS ---
+st.markdown("""
+<style>
+    [data-testid="stAppViewContainer"] {
+        background-color: #EBF5FB !important; 
+        background-image: linear-gradient(to bottom, #FFFFFF 0%, #EBF5FB 100%) !important;
+    }
+    [data-testid="stHeader"] {
+        background-color: rgba(0,0,0,0) !important;
+    }
+    [data-testid="stSidebar"] {
+        background-color: #FFFFFF !important;
+        box-shadow: 2px 0 15px rgba(0,0,0,0.05) !important;
+        border-right: 1px solid #EAECEE !important;
+    }
+    .stApp, p, span, div {
+        color: #2C3E50;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# --- FUNGSI PEMBUAT KOTAK DESAIN ---
+def gambar_kotak_penjelasan(judul, warna, teks):
+    html = f"""<div style="margin-top: 30px; margin-bottom: 10px;"><div style="border: 1px solid #EAECEE; border-radius: 12px; padding: 30px 25px 20px 25px; position: relative; background-color: #ffffff; box-shadow: 0 8px 20px rgba(0,0,0,0.04);"><div style="background-color: {warna}; color: #ffffff; padding: 6px 25px; border-radius: 6px; font-weight: bold; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 14px; position: absolute; top: -16px; left: 50%; transform: translateX(-50%); white-space: nowrap; text-transform: uppercase; box-shadow: 0 4px 10px {warna}40;">{judul}</div><div style="color: #4A5568; font-size: 14px; line-height: 1.6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: justify;">{teks}</div></div></div>"""
+    st.markdown(html, unsafe_allow_html=True)
+
+# ==========================================
+# SLIDE 0: HALAMAN AWAL (PENGENALAN)
+# ==========================================
+if st.session_state['halaman'] == 0:
+    st.markdown("<h2 style='text-align: center; margin-bottom: 10px; color: #2C3E50; font-weight: 800;'>PANDUAN SISTEM FORECASTING</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #7F8C8D; margin-bottom: 20px;'>Pelajari teori dasar sebelum menggunakan aplikasi peramalan.</p>", unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2, gap="large")
+    with col1:
+        teks_forecasting = "Forecasting atau peramalan adalah proses memperkirakan suatu kejadian atau kebutuhan yang akan terjadi pada masa yang akan datang berdasarkan data yang pernah terjadi sebelumnya (data historis). Tujuan forecasting adalah membantu perusahaan dalam mengambil keputusan, seperti menentukan jumlah persediaan, merencanakan pembelian bahan baku, menyusun jadwal produksi, atau memperkirakan permintaan pelanggan. Meskipun hasil forecasting tidak dapat menjamin keadaan yang akan datang secara tepat, hasil peramalan dapat menjadi dasar yang lebih baik dibandingkan mengambil keputusan tanpa menggunakan data."
+        gambar_kotak_penjelasan("Apa itu Forecasting?", "#6C5CE7", teks_forecasting) 
+    with col2:
+        teks_metode = "<p style='margin-top: 0; margin-bottom: 10px;'><b>Single Exponential Smoothing:</b> Metode yang memberikan bobot lebih besar pada data terbaru dibandingkan data yang lebih lama.</p><p style='margin-bottom: 10px;'><b>Double Exponential Smoothing:</b> Pengembangan dari Single Exponential Smoothing. Digunakan ketika data tidak hanya berubah, tetapi juga menunjukkan tren (terus meningkat/menurun).</p><p style='margin-bottom: 10px;'><b>Moving Average:</b> Metode yang menggunakan rata-rata dari beberapa data terakhir untuk memperkirakan nilai pada periode berikutnya.</p><p style='margin-bottom: 0; padding-top: 10px; border-top: 1px dashed #ccc;'><b>Weighted Moving Average (WMA):</b> Memberikan persentase bobot yang berbeda, di mana data terbaru mendapat porsi terbesar.</p>"
+        gambar_kotak_penjelasan("Metode Peramalan", "#00B894", teks_metode) 
+
+    st.write("") 
+    st.write("")
+    _, col_btn, _ = st.columns([2, 1, 2])
+    with col_btn:
+        st.button("Halaman Berikutnya ➔", on_click=lanjut_halaman, use_container_width=True, type="primary")
+
+# ==========================================
+# SLIDE 1: PENJELASAN PARAMETER (ALPHA & BETA)
+# ==========================================
+elif st.session_state['halaman'] == 1:
+    st.markdown("<h2 style='text-align: center; margin-bottom: 10px; color: #2C3E50; font-weight: 800;'>PARAMETER KONTROL</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #7F8C8D; margin-bottom: 20px;'>Penjelasan parameter pembobot yang akan Anda gunakan di dalam aplikasi.</p>", unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2, gap="large")
+    with col1:
+        teks_alpha = "Alpha adalah angka yang digunakan untuk menentukan seberapa besar pengaruh data terbaru terhadap hasil forecast. Nilai alpha berada di antara 0 dan 1.<br><br><b>Alpha kecil (misalnya 0,1)</b> membuat forecast berubah secara perlahan karena lebih banyak mempertimbangkan data sebelumnya.<br><br><b>Alpha besar (misalnya 0,8)</b> membuat forecast lebih cepat mengikuti perubahan data terbaru."
+        gambar_kotak_penjelasan("Parameter Alpha", "#0984E3", teks_alpha) 
+    with col2:
+        teks_beta = "Beta adalah parameter yang digunakan untuk mengatur seberapa cepat perubahan tren diperbarui.<br><br><b>Beta kecil</b> membuat perubahan tren berlangsung lebih lambat.<br><br><b>Beta besar</b> membuat perubahan tren lebih cepat mengikuti kondisi terbaru."
+        gambar_kotak_penjelasan("Parameter Beta", "#FF7675", teks_beta) 
+
+    st.write("")
+    st.write("")
+    col_btn_kiri, _, col_btn_kanan = st.columns([1, 2, 1])
+    with col_btn_kiri:
+        st.button("⬅️ Sebelumnya", on_click=kembali_halaman, use_container_width=True)
+    with col_btn_kanan:
+        st.button("Mulai Aplikasi ➔", on_click=lanjut_halaman, use_container_width=True, type="primary")
+
+# ==========================================
+# SLIDE 2: APLIKASI UTAMA (DASHBOARD)
+# ==========================================
+elif st.session_state['halaman'] == 2:
+    
+    with st.sidebar:
+        st.button("🏠 Kembali ke Buku Panduan", on_click=lambda: st.session_state.update(halaman=0), use_container_width=True)
+        st.markdown("---")
+        st.header("🕰️ Riwayat Forecasting")
+        if st.button("🗑️ Hapus Semua Riwayat", type="primary"):
+            st.session_state['riwayat_forecasting'] = []
+            st.success("Riwayat berhasil dibersihkan!")
+        st.markdown("---")
+        
+        if not st.session_state['riwayat_forecasting']:
+            st.info("Belum ada riwayat peramalan.")
+        else:
+            for idx, item in enumerate(reversed(st.session_state['riwayat_forecasting'])):
+                with st.expander(f"🕒 {item['waktu']}"):
+                    st.caption(f"Metode: {item['metode']}")
+                    st.caption(f"Proyeksi: {item['horizon']}")
+                    st.dataframe(item['data'], use_container_width=True)
+
+    st.title("Dashboard Peramalan & Analisis Error")
+    st.write("Proyeksikan data Anda dan evaluasi akurasinya menggunakan metrik peramalan standar industri.")
+
+    st.subheader("Pengaturan Metode & Output")
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        metode = st.selectbox(
+            "Pilih Metode Peramalan:",
+            ["Double Exponential Smoothing (DES)", "Single Exponential Smoothing (SES)", "Moving Average (MA)", "Weighted Moving Average (WMA)"]
+        )
+    with col_m2:
+        opsi_tampilan = st.radio("Pilihan Tampilan:", ["Lengkap (Chart & Tabel)", "Chart Saja", "Tabel Saja"], horizontal=True)
+
+    st.subheader("Pengaturan Waktu Proyeksi (Masa Depan)")
+    col_w1, col_w2 = st.columns(2)
+    with col_w1:
+        satuan_waktu = st.selectbox("Satuan Waktu:", ["Bulan", "Hari", "Tahun"])
+    with col_w2:
+        horizon = st.number_input(f"Berapa {satuan_waktu} ke depan?", min_value=1, max_value=100, value=3, step=1)
+
+    st.markdown("---")
+    tampilkan_alfa = metode in ["Single Exponential Smoothing (SES)", "Double Exponential Smoothing (DES)"]
+    tampilkan_beta = metode == "Double Exponential Smoothing (DES)"
+    periode_ma = 3
+
+    if metode == "Moving Average (MA)":
+        periode_ma = st.number_input("Jumlah Periode (Orde MA):", min_value=2, max_value=12, value=3, step=1)
+
+    col_p1, col_p2 = st.columns(2)
+    alfa_global, beta_global = 0.20, 0.11
+
+    if tampilkan_alfa:
+        with col_p1: alfa_global = st.number_input("Nilai Alfa (α) Global:", min_value=0.0, max_value=1.0, value=0.20, step=0.01)
+    if tampilkan_beta:
+        with col_p2: beta_global = st.number_input("Nilai Beta (β) Global:", min_value=0.0, max_value=1.0, value=0.11, step=0.01)
+
+    st.markdown("---")
+    opsi_input = st.radio("Pilih Metode Input Data:", ["Input Manual / Copy-Paste via Tabel", "Unggah (Upload) File CSV / Excel"], horizontal=True)
+
+    df_input = pd.DataFrame()
+    if opsi_input == "Input Manual / Copy-Paste via Tabel":
+        st.subheader("Tabel Input Data")
+        df_template = pd.DataFrame({"Bulan/Periode": [""], "Data Historis": [None], "Hasil Forecasting (Awal)": [None]})
+        df_input = st.data_editor(df_template, num_rows="dynamic", use_container_width=True,
+                                  column_config={"Data Historis": st.column_config.NumberColumn(format="%g"),
+                                                 "Hasil Forecasting (Awal)": st.column_config.NumberColumn(format="%g")})
+    else:
+        st.subheader("Unggah File Data")
+        uploaded_file = st.file_uploader("Pilih file Anda (.csv atau .xlsx):", type=["xlsx", "csv"])
+        if uploaded_file is not None:
+            try:
+                df_input = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+                st.success("File berhasil diunggah!")
+                st.dataframe(df_input.head(500), use_container_width=True)
+            except Exception as e:
+                st.error(f"Gagal membaca file: {e}")
+
+    st.markdown("---")
+
+    if st.button("Jalankan Peramalan & Analisis", type="primary"):
+        df_input = df_input.dropna(subset=["Data Historis"])
+        
+        if df_input.empty:
+            st.error("Data masih kosong atau Anda belum memasukkan angka pada kolom 'Data Historis'.")
+        else:
+            df_proses = df_input.head(500).copy()
+            
+            hasil_kalkulasi = []
+            actuals_history = []
+            prev_forecast, prev_level, prev_trend = 0.0, 0.0, 0.0
+            
+            # --- 1. KALKULASI DATA HISTORIS ---
+            for idx, row_data in df_proses.reset_index(drop=True).iterrows():
+                nama_bulan = str(row_data.get("Bulan/Periode", ""))
+                val_bulan = nama_bulan if nama_bulan.strip() != "" else f"Periode {idx+1}"
+                val_actual = float(row_data.get("Data Historis", 0.0))
+                
+                f_awal_raw = row_data.get("Hasil Forecasting (Awal)")
+                val_f_awal = float(f_awal_raw) if pd.notna(f_awal_raw) else val_actual
+                
+                actuals_history.append(val_actual)
+                val_level, val_trend, val_forecast = 0.0, 0.0, 0.0
+                
+                if metode == "Single Exponential Smoothing (SES)":
+                    val_forecast = (alfa_global * val_actual) + ((1 - alfa_global) * val_f_awal) if idx == 0 else (alfa_global * val_actual) + ((1 - alfa_global) * prev_forecast)
+                    prev_forecast = val_forecast
+                elif metode == "Double Exponential Smoothing (DES)":
+                    if idx == 0:
+                        val_level, val_trend, val_forecast = val_actual, 0.0, val_f_awal
+                    else:
+                        val_forecast = prev_level + prev_trend
+                        val_level = (alfa_global * val_actual) + ((1 - alfa_global) * (prev_level + prev_trend))
+                        val_trend = (beta_global * (val_level - prev_level)) + ((1 - beta_global) * prev_trend)
+                    prev_level, prev_trend = val_level, val_trend
+                elif metode == "Moving Average (MA)":
+                    if idx == 0:
+                        val_forecast = val_actual
+                    else:
+                        start_idx = max(0, idx - periode_ma + 1)
+                        val_forecast = sum(actuals_history[start_idx : idx + 1]) / len(actuals_history[start_idx : idx + 1])
+                    prev_forecast = val_forecast
+                elif metode == "Weighted Moving Average (WMA)":
+                    val_forecast = val_actual if idx == 0 else (val_actual * 0.6) + (actuals_history[idx - 1] * 0.4)
+                    prev_forecast = val_forecast
+                
+                hasil_kalkulasi.append({
+                    "Bulan/Periode": val_bulan, "Data Historis": val_actual, "Hasil Forecasting": val_forecast, 
+                    "Upper PI": None, "Lower PI": None
+                })
+
+            df_hist = pd.DataFrame(hasil_kalkulasi)
+            
+            # --- 2. MENGHITUNG METRIK ERROR & RMSE ---
+            df_hist['Eror Forecast'] = df_hist['Data Historis'] - df_hist['Hasil Forecasting']
+            df_hist['Absolute Eror'] = df_hist['Eror Forecast'].abs()
+            df_hist['Squared Eror'] = df_hist['Eror Forecast'] ** 2
+            df_hist['PE (%)'] = df_hist.apply(lambda r: (r['Eror Forecast'] / r['Data Historis'] * 100) if r['Data Historis'] != 0 else 0, axis=1)
+            df_hist['APE (%)'] = df_hist['PE (%)'].abs()
+            df_hist['Cumulative Error'] = df_hist['Eror Forecast'].cumsum()
+            df_hist['Cumulative MAD'] = df_hist['Absolute Eror'].expanding().mean()
+            df_hist['Tracking Signal'] = df_hist.apply(lambda r: (r['Cumulative Error'] / r['Cumulative MAD']) if r['Cumulative MAD'] != 0 else 0, axis=1)
+
+            bias = df_hist['Eror Forecast'].mean()
+            mad = df_hist['Absolute Eror'].mean()
+            mse = df_hist['Squared Eror'].mean()
+            rmse = mse ** 0.5
+            mpe = df_hist['PE (%)'].mean()
+            mape = df_hist['APE (%)'].mean()
+            ts_akhir = df_hist['Tracking Signal'].iloc[-1] if not df_hist.empty else 0
+
+            # --- 3. PROYEKSI MASA DEPAN DENGAN PREDICTION INTERVAL (PI) ---
+            hasil_kalkulasi_future = []
+            for h in range(1, int(horizon) + 1):
+                if metode == "Double Exponential Smoothing (DES)":
+                    future_forecast = prev_level + (h * prev_trend)
+                else:
+                    future_forecast = prev_forecast
+                
+                # Formula pendekatan PI 95%: Forecast ± 1.96 * RMSE * akar(horizon)
+                pi_margin = 1.96 * rmse * math.sqrt(h)
+                
+                hasil_kalkulasi_future.append({
+                    "Bulan/Periode": f"Forecast +{h} {satuan_waktu}", 
+                    "Data Historis": None, 
+                    "Hasil Forecasting": future_forecast,
+                    "Upper PI": future_forecast + pi_margin,
+                    "Lower PI": future_forecast - pi_margin,
+                    "Eror Forecast": None, "Absolute Eror": None, "Squared Eror": None, 
+                    "PE (%)": None, "APE (%)": None, "Tracking Signal": None
+                })
+            
+            df_future = pd.DataFrame(hasil_kalkulasi_future)
+            df_hasil_final = pd.concat([df_hist, df_future], ignore_index=True)
+            
+            waktu_sekarang = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            st.session_state['riwayat_forecasting'].append({
+                "waktu": waktu_sekarang, "metode": metode, "horizon": f"{horizon} {satuan_waktu}", "data": df_hasil_final
+            })
+
+            # Teks polos tanpa emoticon panah
+            st.markdown("<h1 style='text-align: center; color: #1E88E5; font-size: 40px; font-weight: bold;'>FORECAST Selesai</h1>", unsafe_allow_html=True)
+
+            if opsi_tampilan in ["Lengkap (Chart & Tabel)", "Chart Saja"]:
+                
+                # --- PLOTLY CHART (MINITAB STYLE, UKURAN PROPORSIONAL & 3 GARIS) ---
+                fig = go.Figure()
+                
+                # 1. Garis Data Aktual (Biru, Bulat, Solid)
+                fig.add_trace(go.Scatter(
+                    x=df_hist['Bulan/Periode'], y=df_hist['Data Historis'], 
+                    mode='lines+markers', name='Actual',
+                    line=dict(color='#1F77B4', width=1.5), marker=dict(symbol='circle', size=7, color='#1F77B4'),
+                    hovertemplate='<b>%{x}</b><br>Actual: %{y}<extra></extra>'
+                ))
+                
+                # 2. Garis Historis Fit (Merah Gelap, Kotak, Putus-putus)
+                fig.add_trace(go.Scatter(
+                    x=df_hist['Bulan/Periode'], y=df_hist['Hasil Forecasting'], 
+                    mode='lines+markers', name='Fits',
+                    line=dict(color='#A03A3A', width=1.5, dash='dash'), marker=dict(symbol='square', size=6, color='#A03A3A'),
+                    hovertemplate='<b>%{x}</b><br>Fit: %{y:.2f}<extra></extra>'
+                ))
+                
+                # 3. Garis Forecast Masa Depan (Hijau, Wajik, Putus-putus) - Tidak menyambung ke data historis
+                fig.add_trace(go.Scatter(
+                    x=df_future['Bulan/Periode'], y=df_future['Hasil Forecasting'], 
+                    mode='lines+markers', name='Forecasts',
+                    line=dict(color='#2CA02C', width=1.5, dash='dash'), marker=dict(symbol='diamond', size=6, color='#2CA02C'),
+                    hovertemplate='<b>%{x}</b><br>Forecast: %{y:.2f}<extra></extra>'
+                ))
+
+                # 4. Garis Upper PI 95% (Ungu, Segitiga, Dash-Dot)
+                fig.add_trace(go.Scatter(
+                    x=df_future['Bulan/Periode'], y=df_future['Upper PI'], 
+                    mode='lines+markers', name='95.0% PI',
+                    line=dict(color='#8E44AD', width=1.5, dash='dashdot'), marker=dict(symbol='triangle-up', size=7, color='#8E44AD'),
+                    hovertemplate='<b>%{x}</b><br>Upper PI: %{y:.2f}<extra></extra>'
+                ))
+
+                # 5. Garis Lower PI 95% (Ungu, Segitiga, Dash-Dot) - Tidak tampil di legend ganda
+                fig.add_trace(go.Scatter(
+                    x=df_future['Bulan/Periode'], y=df_future['Lower PI'], 
+                    mode='lines+markers', name='95.0% PI Lower',
+                    line=dict(color='#8E44AD', width=1.5, dash='dashdot'), marker=dict(symbol='triangle-up', size=7, color='#8E44AD'),
+                    hovertemplate='<b>%{x}</b><br>Lower PI: %{y:.2f}<extra></extra>',
+                    showlegend=False
+                ))
+
+                # --- MENGATUR TEKS & LAYOUT DI SEBELAH KANAN CHART ---
+                if metode == "Double Exponential Smoothing (DES)":
+                    const_text = f"α (level)&nbsp;&nbsp;&nbsp;&nbsp;{alfa_global:.2f}<br>β (trend)&nbsp;&nbsp;&nbsp;{beta_global:.2f}"
+                elif metode == "Single Exponential Smoothing (SES)":
+                    const_text = f"α (level)&nbsp;&nbsp;&nbsp;&nbsp;{alfa_global:.2f}"
+                elif metode == "Moving Average (MA)":
+                    const_text = f"Length&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{periode_ma}"
+                else:
+                    const_text = "N/A"
+
+                fig.update_layout(
+                    height=500, # KUNCI: Mencegah grafik terlalu tinggi ke atas
+                    title=dict(
+                        text=f"<b>Smoothing Plot for Analisis Peramalan</b><br><span style='font-size: 14px; color: #666;'>{metode}</span>", 
+                        x=0.5, xanchor='center'
+                    ),
+                    xaxis=dict(
+                        domain=[0, 0.78], # Memberi 22% ruang kosong di kanan untuk Teks
+                        showgrid=True, gridcolor='#EAECEE', title="Index"
+                    ),
+                    yaxis=dict(
+                        showgrid=True, gridcolor='#EAECEE', title="Jumlah / Value"
+                    ),
+                    plot_bgcolor='#FFFFFF',
+                    paper_bgcolor='#FFFFFF',
+                    legend=dict(
+                        title=dict(text="Variable", font=dict(size=12, color="black")),
+                        x=0.80, y=0.95, xanchor="left", yanchor="top",
+                        bgcolor="rgba(255,255,255,1)", bordercolor="#EAECEE", borderwidth=1
+                    ),
+                    margin=dict(l=40, r=220, t=80, b=40)
+                )
+
+                # Anotasi "Smoothing Constants"
+                fig.add_annotation(
+                    x=0.80, y=0.55, xref="paper", yref="paper",
+                    text=f"<span style='font-size:12px; color:black;'><b>Smoothing Constants</b></span><br><span style='font-size:12px; color:black;'>{const_text}</span>",
+                    showarrow=False, align="left", xanchor="left", yanchor="top"
+                )
+
+                # Anotasi "Accuracy Measures"
+                acc_text = f"MAPE&nbsp;&nbsp;&nbsp;{mape:.2f}<br>MAD&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{mad:.2f}<br>MSD&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{mse:.2f}"
+                fig.add_annotation(
+                    x=0.80, y=0.30, xref="paper", yref="paper",
+                    text=f"<span style='font-size:12px; color:black;'><b>Accuracy Measures</b></span><br><span style='font-size:12px; color:black;'>{acc_text}</span>",
+                    showarrow=False, align="left", xanchor="left", yanchor="top"
+                )
+
+                # Membingkai chart agar mirip software statistik Minitab
+                fig.update_xaxes(mirror=True, ticks='outside', showline=True, linecolor='black')
+                fig.update_yaxes(mirror=True, ticks='outside', showline=True, linecolor='black')
+
+                st.plotly_chart(fig, use_container_width=True)
+
+            if opsi_tampilan in ["Lengkap (Chart & Tabel)", "Tabel Saja"]:
+                # Menampilkan semua metric tambahan di tabel tanpa subjudul tambahan yang mengganggu
+                st.dataframe(df_hasil_final.style.format(precision=2, na_rep='-'), use_container_width=True)
+            
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_hasil_final.to_excel(writer, index=False, sheet_name='Hasil_Peramalan')
+            st.download_button("Unduh File Excel Lengkap", data=output.getvalue(), file_name=f"Forecasting_{waktu_sekarang.replace(':', '-')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
